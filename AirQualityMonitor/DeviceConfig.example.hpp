@@ -56,6 +56,24 @@
 	#define MQTT_PASSWORD "REPLACE_WITH_YOUR_MQTT_PASSWORD"
 #endif
 
+// ------ RadioHead Packet Radio via SYN115 ------
+#define ENABLE_RADIOHEAD false
+
+// If this is enabled, a SYN115 module should have its data line connected to D8.
+#if ENABLE_RADIOHEAD
+	// Requires:
+	// - https://github.com/sparkfun/SparkFun_RadioHead_Arduino_Library 
+
+	// Time in seconds between transmissions.
+	const unsigned int ADD_TO_RADIOHEAD_INTERVAL = 30;
+
+	#define RADIOHEAD_ASK_PROTOCOL_ID 0x10ef78a7
+	#define RADIOHEAD_ASK_SPEED 2000
+	#define RADIOHEAD_ASK_RX_PIN 0
+	#define RADIOHEAD_ASK_TX_PIN 15 // D8
+	#define RADIOHEAD_ASK_PTT_PIN 0
+#endif
+
 // ------ WI-FI ------
 #if !ENABLE_MQTT && !ENABLE_INFLUXDB
 	#define ENABLE_WI_FI false

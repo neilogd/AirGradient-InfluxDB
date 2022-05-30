@@ -68,6 +68,23 @@ HASensor MQTT_humidity("Humidity");
 void publishToMQTT();
 #endif
 
+#if ENABLE_RADIOHEAD
+	#include "RH_ASK.h"
+RH_ASK rh_ask_driver(RADIOHEAD_ASK_SPEED, RADIOHEAD_ASK_RX_PIN, RADIOHEAD_ASK_TX_PIN, RADIOHEAD_ASK_PTT_PIN);
+
+struct RadioHeadPacketData {
+	uint32_t m_protocolId;
+	uint32_t m_deviceNameHash;
+	uint16_t m_dataPM25;
+	uint16_t m_dataCO2;
+	int16_t m_dataTemp;
+	uint8_t m_dataHumidity;
+};
+RadioHeadPacketData rh_prevPacketData;
+
+void transmitWithRadioHead();
+#endif
+
 AirGradient ag = AirGradient();
 
 #if ENABLE_DISPLAY
@@ -154,7 +171,7 @@ struct Task {
 	unsigned long m_interval; // What to reset the timeout to once it expires
 };
 
-const size_t TOTAL_TASKS = (HAS_PM2_5 + HAS_CO2 + HAS_SHT * 2) * ENABLE_DISPLAY + ENABLE_INFLUXDB + ENABLE_MQTT;
+const size_t TOTAL_TASKS = (HAS_PM2_5 + HAS_CO2 + HAS_SHT * 2) * ENABLE_DISPLAY + ENABLE_INFLUXDB + ENABLE_MQTT + ENABLE_RADIOHEAD;
 
 #if ENABLE_DISPLAY
 // Slight hack to be able to compute the display timesharing at compile time.
@@ -207,6 +224,13 @@ Task tasks[TOTAL_TASKS] = {
 		.m_callback = publishToMQTT,
 		.m_timeout  = ADD_TO_MQTT_INTERVAL * MS,
 		.m_interval = ADD_TO_MQTT_INTERVAL * MS,
+	}
+#endif
+#if ENABLE_RADIOHEAD
+	{
+		.m_callback = transmitWithRadioHead,
+		.m_timeout  = ADD_TO_RADIOHEAD_INTERVAL * MS,
+		.m_interval = ADD_TO_RADIOHEAD_INTERVAL * MS,
 	}
 #endif
 };
@@ -298,6 +322,15 @@ void setup() {
 	}
 #endif
 
+#if ENABLE_RADIOHEAD
+	Serial.print("Initializing RadioHead...");
+	if(rh_ask_driver.init()) {
+		Serial.println("...Success!");
+	} else {
+		Serial.println("...Failed!");
+	}
+#endif
+
 	elapsedMs = millis();
 }
 
@@ -368,6 +401,41 @@ void publishToMQTT() {
 	MQTT_temperature.setValue(getTemperature() - TEMP_OFFSET);
 	MQTT_humidity.setValue(getHumidity());
 	#endif
+}
+#endif
+
+#if ENABLE_RADIOHEAD
+static uint32_t hashSDBM(uint32_t hash, const uint8_t* data, size_t size)
+{
+	while(size--)
+		hash = (uint32_t)*data++ + (hash << 6) + (hash << 16) - hash;
+	return hash;
+}
+
+void transmitWithRadioHead() {
+	RadioHeadPacketData packetData = {};
+
+	packetData.m_protocolId = RADIOHEAD_ASK_PROTOCOL_ID;
+	packetData.m_deviceNameHash = hashSDBM(0, (const uint8_t*)DEVICE_NAME, strlen(DEVICE_NAME));
+
+	#if HAS_PM2_5
+	packetData.m_dataPM25 = (uint16_t)getPM2_5();
+	#endif
+	#if HAS_CO2
+	packetData.m_dataCO2 = (uint16_t)getCO2();
+	#endif
+	#if HAS_SHT
+	packetData.m_dataTemp = (int16_t)((getTemperature() - TEMP_OFFSET) * 1000);
+	packetData.m_dataHumidity = (uint8_t)getHumidity(); 
+	#endif
+
+	if(memcmp(&packetData, &rh_prevPacketData, sizeof(packetData)) != 0) {
+		Serial.println("Sending packet with RadioHead");
+
+		rh_ask_driver.send((uint8_t*)&packetData, sizeof(packetData));
+	}
+
+	rh_prevPacketData = packetData;
 }
 #endif
 
